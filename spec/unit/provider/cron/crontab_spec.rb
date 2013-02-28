@@ -111,6 +111,7 @@ describe Puppet::Type.type(:cron).provider(:crontab) do
       it "should regenerate the whole text from the set of all records" do
         compare_crontab_text subject.to_file(all_records), all_text
       end
+
     end
   end
 
@@ -119,6 +120,14 @@ describe Puppet::Type.type(:cron).provider(:crontab) do
       vixie_header = File.read(my_fixture('vixie_header.txt'))
       vixie_records = subject.parse(vixie_header)
       compare_crontab_text subject.to_file(vixie_records), ""
+    end
+  end
+
+  context "when composing a record with conflicting schedules" do
+    it "should issue a warning to the user" do
+      records = [ YAML.load(File.read(my_fixture('conflicting.yaml'))) ]
+      Puppet.expects(:notice)
+      subject.to_file(records)
     end
   end
 end

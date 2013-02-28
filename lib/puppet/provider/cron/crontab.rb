@@ -66,6 +66,13 @@ Puppet::Type.type(:cron).provide(:crontab, :parent => Puppet::Provider::ParsedFi
       end
 
       if record[:special]
+        if record[:minute] or
+	   record[:hour] or
+	   record[:weekday] or
+	   record[:monthday] or
+	   record[:month] then
+	  Puppet.notice("when a special schedule is specified, other scheduling parameters are ignored")
+	end
         str += "@#{record[:special]} #{record[:command]}"
       else
         str += join(record)
