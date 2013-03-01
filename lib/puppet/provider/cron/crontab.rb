@@ -22,7 +22,7 @@ Puppet::Type.type(:cron).provide(:crontab, :parent => Puppet::Provider::ParsedFi
 
   text_line :environment, :match => %r{^\s*\w+=}
 
-  record_line :freebsd_special, :fields => %w{special command},
+  bsdspecial = record_line :freebsd_special, :fields => %w{special command},
     :match => %r{^@(\w+)\s+(.+)$}, :pre_gen => proc { |record|
       record[:special] = "@" + record[:special]
     }
@@ -54,24 +54,17 @@ Puppet::Type.type(:cron).provide(:crontab, :parent => Puppet::Provider::ParsedFi
       end
     end
 
-
     # Add name and environments as necessary.
     def to_line(record)
-      str = ""
-      str = "# Puppet Name: #{record[:name]}\n" if record[:name]
-      if record[:environment] and record[:environment] != :absent and record[:environment] != [:absent]
-        record[:environment].each do |env|
-          str += env + "\n"
-        end
-      end
-
+      str = Puppet::Type.type(:cron).provider(:crontab).prepend_lines(record)
+  
       if record[:special]
         if record[:minute] or
-	   record[:hour] or
-	   record[:weekday] or
-	   record[:monthday] or
-	   record[:month] then
-	  Puppet.notice("when a special schedule is specified, other scheduling parameters are ignored")
+  	 record[:hour] or
+  	 record[:weekday] or
+  	 record[:monthday] or
+  	 record[:month] then
+  	  Puppet.notice("when a special schedule is specified, other scheduling parameters are ignored")
 	end
         str += "@#{record[:special]} #{record[:command]}"
       else
@@ -81,6 +74,33 @@ Puppet::Type.type(:cron).provide(:crontab, :parent => Puppet::Provider::ParsedFi
     end
   end
 
+  class << bsdspecial
+    def to_line(record)
+      Puppet.debug("Composing crontab record #{record[:name]}")
+      str = Puppet::Type.type(:cron).provider(:crontab).prepend_lines(record)
+  
+      if record[:minute] or
+         record[:hour] or
+         record[:weekday] or
+         record[:monthday] or
+         record[:month] then
+        Puppet.notice("when a special schedule is specified, other scheduling parameters are ignored")
+      end
+      str += join(record)
+      Puppet.debug("Done: '#{str}'")
+      str
+    end
+  end
+
+  def self.prepend_lines(record)
+    str = "# Puppet Name: #{record[:name]}\n" if record[:name]
+    if record[:environment] and record[:environment] != :absent and record[:environment] != [:absent]
+      record[:environment].each do |env|
+        str += env + "\n"
+      end
+    end
+    str
+  end
 
   # Return the header placed at the top of each generated file, warning
   # users that modifying this file manually is probably a bad idea.
