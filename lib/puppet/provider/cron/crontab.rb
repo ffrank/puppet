@@ -22,7 +22,7 @@ Puppet::Type.type(:cron).provide(:crontab, :parent => Puppet::Provider::ParsedFi
 
   text_line :environment, :match => %r{^\s*\w+=}
 
-  record_line :freebsd_special, :fields => %w{special command},
+  freebsd_special = record_line :freebsd_special, :fields => %w{special command},
     :match => %r{^@(\w+)\s+(.+)$}, :pre_gen => proc { |record|
       record[:special] = "@" + record[:special]
     }
@@ -57,13 +57,7 @@ Puppet::Type.type(:cron).provide(:crontab, :parent => Puppet::Provider::ParsedFi
 
     # Add name and environments as necessary.
     def to_line(record)
-      str = ""
-      str = "# Puppet Name: #{record[:name]}\n" if record[:name]
-      if record[:environment] and record[:environment] != :absent and record[:environment] != [:absent]
-        record[:environment].each do |env|
-          str += env + "\n"
-        end
-      end
+      str = Puppet::Type.type(:cron).provider(:crontab).prepend_lines(record)
 
       if record[:special]
         str += "@#{record[:special]} #{record[:command]}"
@@ -74,6 +68,44 @@ Puppet::Type.type(:cron).provide(:crontab, :parent => Puppet::Provider::ParsedFi
     end
   end
 
+  class << freebsd_special
+    def to_line(record)
+      Puppet.debug("Composing crontab record #{record[:name]}")
+      str = Puppet::Type.type(:cron).provider(:crontab).prepend_lines(record)
+      str += join(record)
+      str
+    end
+  end
+
+  # The metadata lines that get put into the crontab immediately
+  # before the cron task proper.
+  # @api private
+  def self.prepend_lines(record)
+    name_line(record) + env_lines(record)
+  end
+
+  # The 'Puppet Name:' line to be put atop the crontab representation
+  # of a given record.
+  # @api private
+  # @see prepend_lines
+  def self.name_line(record)
+    if record[:name] then
+      "# Puppet Name: #{record[:name]}\n" if record[:name]
+    else
+      ""
+    end
+  end
+
+  # The environment lines for a given record.
+  # @api private
+  # @see prepend_lines
+  def self.env_lines(record)
+    if record[:environment] and record[:environment] != :absent and record[:environment] != [:absent]
+      record[:environment] * "\n" + "\n"
+    else
+      ""
+    end
+  end
 
   # Return the header placed at the top of each generated file, warning
   # users that modifying this file manually is probably a bad idea.

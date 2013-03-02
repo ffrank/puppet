@@ -121,4 +121,11 @@ describe Puppet::Type.type(:cron).provider(:crontab) do
       compare_crontab_text subject.to_file(vixie_records), ""
     end
   end
+
+  context "when generating the text form of task with a FreeBSD special schedule" do
+    let(:record) { { :record_type => "freebsd_special", :name => "bsd", :special => "midnight", :command => "/bin/true" } }
+    it "should prepend the record line with a puppet name line" do
+      subject.to_file( [ record ] ).should match /# Puppet Name:/
+    end
+  end
 end
