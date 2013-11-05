@@ -453,7 +453,6 @@ class Puppet::Parser::Lexer
 
   # this is the heart of the lexer
   def scan
-    #Puppet.debug("entering scan")
     lex_error "Invalid or empty string" unless @scanner
 
     # Skip any initial whitespace.
@@ -490,7 +489,10 @@ class Puppet::Parser::Lexer
         @expected.pop
       end
 
-      if final_token.name == :LBRACE or final_token.name == :LPAREN
+      hashliteral = ( final_token.name == :LBRACE and (
+                       @previous_token.name == :FARROW or
+		       @previous_token.name == :EQUALS ) )
+      if ( final_token.name == :LBRACE and ! hashliteral ) or final_token.name == :LPAREN
         commentpush
       end
       if final_token.name == :RPAREN
@@ -582,7 +584,8 @@ class Puppet::Parser::Lexer
 
   # returns the content of the currently accumulated content cache
   def commentpop
-    @commentstack.pop[0]
+    result = @commentstack.pop[0]
+    result
   end
 
   def getcomment(line = nil)
