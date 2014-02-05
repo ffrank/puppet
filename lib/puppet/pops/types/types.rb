@@ -35,7 +35,7 @@ module Puppet::Pops::Types
       alias eql? ==
 
       def to_s
-        Puppet::Pops::Types::TypeCalculator.new.string(self)
+        Puppet::Pops::Types::TypeCalculator.string(self)
       end
     end
   end
@@ -72,6 +72,12 @@ module Puppet::Pops::Types
   #
   # @api public
   class PDataType < PObjectType
+    module ClassModule
+      def ==(o)
+        self.class == o.class ||
+          o.class == PVariantType && o == Puppet::Pops::Types::TypeCalculator.data_variant()
+      end
+    end
   end
 
   # A flexible type describing an any? of other types
@@ -86,14 +92,15 @@ module Puppet::Pops::Types
       end
 
       def ==(o)
-        self.class == o.class && Set.new(types) == Set.new(o.types)
+        (self.class == o.class && Set.new(types) == Set.new(o.types)) ||
+          (o.class == PDataType && self == Puppet::Pops::Types::TypeCalculator.data_variant())
       end
     end
   end
 
   # Type that is PDataType compatible, but is not a PCollectionType.
   # @api public
-  class PLiteralType < PDataType
+  class PLiteralType < PObjectType
   end
 
   # A string type describing the set of strings having one of the given values
@@ -102,22 +109,6 @@ module Puppet::Pops::Types
     has_many_attr 'values', String, :lowerBound => 1
 
     module ClassModule
-      def hash
-        [self.class, Set.new(self.values)].hash
-      end
-
-      def ==(o)
-        self.class == o.class && Set.new(values) == Set.new(o.values)
-      end
-    end
-  end
-
-  # @api public
-  class PStringType < PLiteralType
-    has_many_attr 'values', String, :lowerBound => 0, :upperBound => -1, :unique => true
-
-    module ClassModule
-
       def hash
         [self.class, Set.new(self.values)].hash
       end
@@ -144,7 +135,7 @@ module Puppet::Pops::Types
       # Returns Float.Infinity if one end of the range is unbound
       def size
         return 1.0 / 0.0 if from.nil? || to.nil?
-        (to-from).abs
+        1+(to-from).abs
       end
 
       # Returns Enumerator if no block is given
@@ -181,6 +172,23 @@ module Puppet::Pops::Types
 
       def ==(o)
         self.class == o.class && from == o.from && to == o.to
+      end
+    end
+  end
+
+  # @api public
+  class PStringType < PLiteralType
+    has_many_attr 'values', String, :lowerBound => 0, :upperBound => -1, :unique => true
+    contains_one_uni 'size_type', PIntegerType
+
+    module ClassModule
+
+      def hash
+        [self.class, self.size_type, Set.new(self.values)].hash
+      end
+
+      def ==(o)
+        self.class == o.class && self.size_type == o.size_type && Set.new(values) == Set.new(o.values)
       end
     end
   end
@@ -232,13 +240,14 @@ module Puppet::Pops::Types
   # @api public
   class PCollectionType < PObjectType
     contains_one_uni 'element_type', PAbstractType
+    contains_one_uni 'size_type', PIntegerType
     module ClassModule
       def hash
-        [self.class, element_type].hash
+        [self.class, element_type, size].hash
       end
 
       def ==(o)
-        self.class == o.class && element_type == o.element_type
+        self.class == o.class && element_type == o.element_type && size_type == o.size_type
       end
     end
   end
@@ -247,11 +256,11 @@ module Puppet::Pops::Types
   class PArrayType < PCollectionType
     module ClassModule
       def hash
-        [self.class, self.element_type].hash
+        [self.class, self.element_type, self.size_type].hash
       end
 
       def ==(o)
-        self.class == o.class && self.element_type == o.element_type
+        self.class == o.class && self.element_type == o.element_type && self.size_type == o.size_type
       end
     end
   end
@@ -261,11 +270,14 @@ module Puppet::Pops::Types
     contains_one_uni 'key_type', PAbstractType
     module ClassModule
       def hash
-        [self.class, key_type, self.element_type].hash
+        [self.class, key_type, self.element_type, self.size_type].hash
       end
 
       def ==(o)
-        self.class == o.class && key_type == o.key_type && self.element_type == o.element_type
+        self.class        == o.class         &&
+        key_type          == o.key_type      &&
+        self.element_type == o.element_type  &&
+        self.size_type    == o.size_type
       end
     end
   end
@@ -318,6 +330,22 @@ module Puppet::Pops::Types
       end
       def ==(o)
         self.class == o.class && type_name == o.type_name && title == o.title
+      end
+    end
+  end
+
+  # Represents a type that accept PNilType instead of the type parameter
+  # required_type - is a short hand for Variant[T, Undef]
+  #
+  class POptionalType < PAbstractType
+    contains_one_uni 'optional_type', PAbstractType
+    module ClassModule
+      def hash
+        [self.class, optional_type].hash
+      end
+
+      def ==(o)
+        self.class == o.class && optional_type == o.optional_type
       end
     end
   end

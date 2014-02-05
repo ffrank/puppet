@@ -920,7 +920,7 @@ describe Puppet::Type.type(:file) do
 
       file.remove_existing(:directory).should == true
 
-      Puppet::FileSystem::File.exist?(file[:path]).should == false
+      Puppet::FileSystem.exist?(file[:path]).should == false
     end
 
     it "should remove an existing link", :if => described_class.defaultprovider.feature?(:manages_symlinks) do
@@ -928,12 +928,12 @@ describe Puppet::Type.type(:file) do
 
       target = tmpfile('link_target')
       FileUtils.touch(target)
-      Puppet::FileSystem::File.new(target).symlink(path)
+      Puppet::FileSystem.symlink(target, path)
       file[:target] = target
 
       file.remove_existing(:directory).should == true
 
-      Puppet::FileSystem::File.exist?(file[:path]).should == false
+      Puppet::FileSystem.exist?(file[:path]).should == false
     end
 
     it "should fail if the file is not a file, link, or directory" do
@@ -947,7 +947,7 @@ describe Puppet::Type.type(:file) do
       file.stat
       file.stubs(:stat).returns stub('stat', :ftype => 'file')
 
-      Puppet::FileSystem::File.stubs(:unlink)
+      Puppet::FileSystem.stubs(:unlink)
 
       file.remove_existing(:directory).should == true
       file.instance_variable_get(:@stat).should == :needs_stat
@@ -1009,7 +1009,7 @@ describe Puppet::Type.type(:file) do
     before do
       target = tmpfile('link_target')
       FileUtils.touch(target)
-      Puppet::FileSystem::File.new(target).symlink(path)
+      Puppet::FileSystem.symlink(target, path)
 
       file[:target] = target
       file[:links] = :manage # so we always use :lstat
@@ -1066,35 +1066,6 @@ describe Puppet::Type.type(:file) do
   end
 
   describe "#write" do
-    it "should propagate failures encountered when renaming the temporary file" do
-      File.stubs(:open)
-      File.expects(:rename).raises ArgumentError
-
-      file[:backup] = 'puppet'
-
-      file.stubs(:validate_checksum?).returns(false)
-
-      property = stub('content_property', :actual_content => "something", :length => "something".length)
-      file.stubs(:property).with(:content).returns(property)
-
-      expect { file.write(:content) }.to raise_error(Puppet::Error)
-    end
-
-    it "should delegate writing to the content property" do
-      filehandle = stub_everything 'fh'
-      File.stubs(:open).yields(filehandle)
-      File.stubs(:rename)
-      property = stub('content_property', :actual_content => "something", :length => "something".length)
-      file[:backup] = 'puppet'
-
-      file.stubs(:validate_checksum?).returns(false)
-      file.stubs(:property).with(:content).returns(property)
-
-      property.expects(:write).with(filehandle)
-
-      file.write(:content)
-    end
-
     describe "when validating the checksum" do
       before { file.stubs(:validate_checksum?).returns(true) }
 
@@ -1120,6 +1091,73 @@ describe Puppet::Type.type(:file) do
         file.stubs(:property).with(:content).returns(property)
 
         expect { file.write :NOTUSED }.to_not raise_error
+      end
+    end
+
+    describe "when resource mode is supplied" do
+      before { file.stubs(:property_fix) }
+
+      context "and writing temporary files" do
+        before { file.stubs(:write_temporary_file?).returns(true) }
+
+        it "should convert symbolic mode to int" do
+          file[:mode] = 'oga=r'
+          Puppet::Util.expects(:replace_file).with(file[:path], 0444)
+          file.write :NOTUSED
+        end
+
+        it "should support int modes" do
+          file[:mode] = '0444'
+          Puppet::Util.expects(:replace_file).with(file[:path], 0444)
+          file.write :NOTUSED
+        end
+      end
+
+      context "and not writing temporary files" do
+        before { file.stubs(:write_temporary_file?).returns(false) }
+
+        it "should set a umask of 0" do
+          file[:mode] = 'oga=r'
+          Puppet::Util.expects(:withumask).with(0)
+          file.write :NOTUSED
+        end
+
+        it "should convert symbolic mode to int" do
+          file[:mode] = 'oga=r'
+          File.expects(:open).with(file[:path], anything, 0444)
+          file.write :NOTUSED
+        end
+
+        it "should support int modes" do
+          file[:mode] = '0444'
+          File.expects(:open).with(file[:path], anything, 0444)
+          file.write :NOTUSED
+        end
+      end
+    end
+
+    describe "when resource mode is not supplied" do
+      context "and content is supplied" do
+        it "should default to 0644 mode" do
+          file = described_class.new(:path => path, :content => "file content")
+
+          file.write :NOTUSED
+
+          expect(File.stat(file[:path]).mode & 0777).to eq(0644)
+        end
+      end
+
+      context "and no content is supplied" do
+        it "should use puppet's default umask of 022" do
+          file = described_class.new(:path => path)
+
+          umask_from_the_user = 0777
+          Puppet::Util.withumask(umask_from_the_user) do
+            file.write :NOTUSED
+          end
+
+          expect(File.stat(file[:path]).mode & 0777).to eq(0644)
+        end
       end
     end
   end
@@ -1335,7 +1373,7 @@ describe Puppet::Type.type(:file) do
       catalog.apply
 
       # I convert them to strings so they display correctly if there's an error.
-      (Puppet::FileSystem::File.new(@target).stat.mode & 007777).to_s(8).should == '644'
+      (Puppet::FileSystem.stat(@target).mode & 007777).to_s(8).should == '644'
     end
 
     it "should manage the mode of the followed link" do
@@ -1344,7 +1382,7 @@ describe Puppet::Type.type(:file) do
         @link_resource[:links] = :follow
         catalog.apply
 
-        (Puppet::FileSystem::File.new(@target).stat.mode & 007777).to_s(8).should == '755'
+        (Puppet::FileSystem.stat(@target).mode & 007777).to_s(8).should == '755'
       end
     end
   end
@@ -1428,7 +1466,7 @@ describe Puppet::Type.type(:file) do
 
       catalog.apply
 
-      Puppet::FileSystem::File.exist?(path).should be_true
+      Puppet::FileSystem.exist?(path).should be_true
       @logs.should_not be_any {|l| l.level != :notice }
     end
   end

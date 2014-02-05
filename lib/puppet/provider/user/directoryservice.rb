@@ -30,6 +30,9 @@ Puppet::Type.type(:user).provide :directoryservice do
   # 10.8 Passwords use a PBKDF2 salt value
   has_features :manages_password_salt
 
+  #provider can set the user's shell
+  has_feature :manages_shell
+
 ##               ##
 ## Class Methods ##
 ##               ##
@@ -238,7 +241,7 @@ Puppet::Type.type(:user).provide :directoryservice do
   def self.get_sha1(guid)
     password_hash = nil
     password_hash_file = "#{password_hash_dir}/#{guid}"
-    if Puppet::FileSystem::File.exist?(password_hash_file) and File.file?(password_hash_file)
+    if Puppet::FileSystem.exist?(password_hash_file) and File.file?(password_hash_file)
       raise Puppet::Error, "Could not read password hash file at #{password_hash_file}" if not File.readable?(password_hash_file)
       f = File.new(password_hash_file)
       password_hash = f.read

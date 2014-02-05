@@ -338,10 +338,6 @@ case_expression
   selector_entry
     : expression FARROW expression { result = Factory.MAP(val[0], val[2]) ; loc result, val[1] }
 
-# --- IMPORT
-#     IMPORT is handled as a non parenthesized call and is transformed to an ImportExpression.
-#     i.e. there is no special grammar for it - it is just a "call statement".
-
 #---RESOURCE
 #
 # Produces [Model::ResourceExpression, Model::ResourceDefaultsExpression]
@@ -404,6 +400,11 @@ resource_expression
         error val[0], "Expression is not valid as a resource, resource-default, or resource-override"
       end
       loc result, val[0], val[4]
+    }
+  | at CLASS LBRACE resourceinstances endsemi RBRACE {
+        result = Factory.RESOURCE(Factory.fqn(token_text(val[1])), val[3])
+        result.form = val[0]
+        loc result, val[1], val[5]
     }
   | CLASS LBRACE resourceinstances endsemi RBRACE {
         result = Factory.RESOURCE(Factory.fqn(token_text(val[0])), val[2])

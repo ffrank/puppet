@@ -48,6 +48,7 @@ module Puppet::Pops::Issues
         # Evaluate the message block in the msg data's binding
         msgdata.format(hash, &message_block)
       rescue StandardError => e
+        Puppet::Pops::Issues::MessageData
         raise RuntimeError, "Error while reporting issue: #{issue_code}. #{e.message}", caller
       end
     end
@@ -159,6 +160,15 @@ module Puppet::Pops::Issues
     "Illegal attempt to assign to '#{label.a_an(semantic)}'. Not an assignable reference"
   end
 
+  # Variables are immutable, cannot reassign in the same assignment scope
+  ILLEGAL_REASSIGNMENT = hard_issue :ILLEGAL_REASSIGNMENT, :name do
+    "Cannot reassign variable #{name}"
+  end
+
+  ILLEGAL_RESERVED_ASSIGNMENT = hard_issue :ILLEGAL_RESERVED_ASSIGNMENT, :name do
+    "Attempt to assign to a reserved variable name: '#{name}'"
+  end
+
   # Assignment cannot be made to numeric match result variables
   ILLEGAL_NUMERIC_ASSIGNMENT = issue :ILLEGAL_NUMERIC_ASSIGNMENT, :varname do
     "Illegal attempt to assign to the numeric match result variable '$#{varname}'. Numeric variables are not assignable"
@@ -230,11 +240,11 @@ module Puppet::Pops::Issues
   end
 
   ILLEGAL_NAME = hard_issue :ILLEGAL_NAME, :name do
-    "Illegal name. The given name #{name} does not conform to the naming rule /^((::)?[a-z]\w*)(::[a-z]\w*)*$/"
+    "Illegal name. The given name #{name} does not conform to the naming rule /^((::)?[a-z_]\w*)(::[a-z]\w*)*$/"
   end
 
   ILLEGAL_VAR_NAME = hard_issue :ILLEGAL_VAR_NAME, :name do
-    "Illegal variable name, The given name '#{name}' does not conform to the naming rule /^(::)?(\w+::)*\w+$/"
+    "Illegal variable name, The given name '#{name}' does not conform to the naming rule /^((::)?[a-z_]\w*)(::[a-z]\w*)*$/"
   end
 
   ILLEGAL_NUMERIC_VAR_NAME = hard_issue :ILLEGAL_NUMERIC_VAR_NAME, :name do
@@ -325,6 +335,10 @@ module Puppet::Pops::Issues
     "String supports [] with one or two arguments. Got #{actual}"
   end
 
+  BAD_STRING_SLICE_TYPE = issue :BAD_STRING_SLICE_TYPE, :actual do
+    "String-Type [] requires all arguments to be integers (or default). Got #{actual}"
+  end
+
   BAD_ARRAY_SLICE_ARITY = issue :BAD_ARRAY_SLICE_ARITY, :actual do
     "Array supports [] with one or two arguments. Got #{actual}"
   end
@@ -339,6 +353,10 @@ module Puppet::Pops::Issues
 
   BAD_INTEGER_SLICE_TYPE = issue :BAD_INTEGER_SLICE_TYPE, :actual do
     "Integer-Type [] requires all arguments to be integers (or default). Got #{actual}"
+  end
+
+  BAD_COLLECTION_SLICE_TYPE = issue :BAD_COLLECTION_SLICE_TYPE, :actual do
+    "A Type's size constraint arguments must be a single Integer type, or 1-2 integers (or default). Got #{label.a_an(actual)}"
   end
 
   BAD_FLOAT_SLICE_ARITY = issue :BAD_INTEGER_SLICE_ARITY, :actual do

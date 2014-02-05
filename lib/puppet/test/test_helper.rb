@@ -40,7 +40,9 @@ module Puppet::Test
     #  any individual tests.
     # @return nil
     def self.before_all_tests()
-
+      # Make sure that all of the setup is also done for any before(:all) blocks
+      Puppet.push_context(Puppet.initial_context, "Initial for specs")
+      self.before_each_test()
     end
 
     # Call this method once, at the end of a test run, when no more tests
@@ -53,6 +55,7 @@ module Puppet::Test
     # Call this method once per test, prior to execution of each invididual test.
     # @return nil
     def self.before_each_test()
+
       # We need to preserve the current state of all our indirection cache and
       # terminus classes.  This is pretty important, because changes to these
       # are global and lead to order dependencies in our testing.
@@ -83,8 +86,15 @@ module Puppet::Test
 
       initialize_settings_before_each()
 
-      Puppet::Node::Environment.clear
+      Puppet.push_context(
+        {
+          :trusted_information =>
+            Puppet::Context::TrustedInformation.new('local', 'testing', {}),
+        },
+        "Context for specs")
+
       Puppet::Parser::Functions.reset
+      Puppet::Node::Environment.clear
       Puppet::Application.clear!
       Puppet::Util::Profiler.clear
 
@@ -137,6 +147,7 @@ module Puppet::Test
       $LOAD_PATH.clear
       $old_load_path.each {|x| $LOAD_PATH << x }
 
+      Puppet.pop_context
     end
 
 

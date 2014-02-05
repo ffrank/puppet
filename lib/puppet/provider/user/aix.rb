@@ -7,7 +7,7 @@
 #   but puppet does not allow it. There is a ticket open for that (#5431)
 # - AIX maximum password age is in WEEKs, not days
 #
-# See  http://projects.puppetlabs.com/projects/puppet/wiki/Development_Provider_Development
+# See  http://docs.puppetlabs.com/guides/provider_development.html
 # for more information
 #
 # Author::    Hector Rivas Gandara <keymon@gmail.com>
@@ -34,7 +34,7 @@ Puppet::Type.type(:user).provide :aix, :parent => Puppet::Provider::AixObject do
 
   # Provider features
   has_features :manages_aix_lam
-  has_features :manages_homedir, :manages_passwords
+  has_features :manages_homedir, :manages_passwords, :manages_shell
   has_features :manages_expiry,  :manages_password_age
 
   # Attribute verification (TODO)

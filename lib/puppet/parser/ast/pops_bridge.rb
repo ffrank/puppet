@@ -20,7 +20,7 @@ class Puppet::Parser::AST::PopsBridge
     end
 
     def to_s
-      Puppet::Pops::Model::ModelTreeDumper.new(dump(@value))
+      Puppet::Pops::Model::ModelTreeDumper.new.dump(@value)
     end
 
     def evaluate(scope)
@@ -44,6 +44,14 @@ class Puppet::Parser::AST::PopsBridge
         # What should be done if the above happens (We don't want this to happen).
         # Puppet::Parser::AST::BlockExpression.new(:children => [self] + other.children)
       end
+    end
+
+    # The 3x requires code plugged in to an AST to have this in certain positions in the tree. The purpose
+    # is to either print the content, or to look for things that needs to be defined. This implementation
+    # cheats by always returning an empty array. (This allows simple files to not require a "Program" at the top.
+    #
+    def children
+      []
     end
   end
 

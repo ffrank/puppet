@@ -16,6 +16,12 @@ describe 'Puppet::Pops::Evaluator::EvaluatorImpl' do
   include PuppetSpec::Scope
   before(:each) do
     Puppet[:strict_variables] = true
+
+    # These must be set since the is 3x logic that triggers on these even if the tests are explicit
+    # about selection of parser and evaluator
+    #
+    Puppet[:parser] = 'future'
+    Puppet[:evaluator] = 'future'
   end
 
   let(:parser) { Puppet::Pops::Parser::EvaluatingParser::Transitional.new }
@@ -444,6 +450,13 @@ describe 'Puppet::Pops::Evaluator::EvaluatorImpl' do
          Array[String] : { no }
          Array[Integer]: { yes }
       }"                                                     => 'yes',
+      "case 1 {
+         Integer : { yes }
+         Type[Integer] : { no } }"                           => 'yes',
+      "case Integer {
+         Integer : { no }
+         Type[Integer] : { yes } }"                          => 'yes',
+
     }.each do |source, result|
         it "should parse and evaluate the expression '#{source}' to #{result}" do
           parser.evaluate_string(scope, source, __FILE__).should == result
@@ -546,12 +559,24 @@ describe 'Puppet::Pops::Evaluator::EvaluatorImpl' do
 
     # Type operations (full set tested by tests covering type calculator)
     {
-      "Array[Integer]"             => types.array_of(types.integer),
-      "Hash[Integer,Integer]"      => types.hash_of(types.integer, types.integer),
-      "Resource[File]"             => types.resource('File'),
-      "Resource['File']"           => types.resource(types.resource('File')),
-      "File[foo]"                  => types.resource('file', 'foo'),
-      "File[foo, bar]"             => [types.resource('file', 'foo'), types.resource('file', 'bar')],
+      "Array[Integer]"                  => types.array_of(types.integer),
+      "Array[Integer,1]"                => types.constrain_size(types.array_of(types.integer),1, :default),
+      "Array[Integer,1,2]"              => types.constrain_size(types.array_of(types.integer),1, 2),
+      "Array[Integer,Integer[1,2]]"     => types.constrain_size(types.array_of(types.integer),1, 2),
+      "Array[Integer,Integer[1]]"       => types.constrain_size(types.array_of(types.integer),1, :default),
+      "Hash[Integer,Integer]"           => types.hash_of(types.integer, types.integer),
+      "Hash[Integer,Integer,1]"         => types.constrain_size(types.hash_of(types.integer, types.integer),1, :default),
+      "Hash[Integer,Integer,1,2]"       => types.constrain_size(types.hash_of(types.integer, types.integer),1, 2),
+      "Hash[Integer,Integer,Integer[1,2]]" => types.constrain_size(types.hash_of(types.integer, types.integer),1, 2),
+      "Hash[Integer,Integer,Integer[1]]"   => types.constrain_size(types.hash_of(types.integer, types.integer),1, :default),
+      "Resource[File]"                  => types.resource('File'),
+      "Resource['File']"                => types.resource(types.resource('File')),
+      "File[foo]"                       => types.resource('file', 'foo'),
+      "File[foo, bar]"                  => [types.resource('file', 'foo'), types.resource('file', 'bar')],
+      "Pattern[a, /b/, Pattern[c], Regexp[d]]"  => types.pattern('a', 'b', 'c', 'd'),
+      "String[1,2]"                     => types.constrain_size(types.string,1, 2),
+      "String[Integer[1,2]]"            => types.constrain_size(types.string,1, 2),
+      "String[Integer[1]]"              => types.constrain_size(types.string,1, :default),
     }.each do |source, result|
       it "should parse and evaluate the expression '#{source}' to #{result}" do
         parser.evaluate_string(scope, source, __FILE__).should == result
@@ -580,16 +605,17 @@ describe 'Puppet::Pops::Evaluator::EvaluatorImpl' do
       "Array[0]"                    => 'Array-Type[] arguments must be types. Got Fixnum',
       "Hash[0]"                     => 'Hash-Type[] arguments must be types. Got Fixnum',
       "Hash[Integer, 0]"            => 'Hash-Type[] arguments must be types. Got Fixnum',
-      "Array[Integer,String]"       => 'Array-Type[] accepts 1 argument. Got 2',
-      "Hash[Integer,String, Hash]"  => 'Hash-Type[] accepts 1 to 2 arguments. Got 3',
+      "Array[Integer,1,2,3]"        => 'Array-Type[] accepts 1 to 3 arguments. Got 4',
+      "Array[Integer,String]"       => "A Type's size constraint arguments must be a single Integer type, or 1-2 integers (or default). Got a String-Type",
+      "Hash[Integer,String, 1,2,3]" => 'Hash-Type[] accepts 1 to 4 arguments. Got 5',
       "'abc'[x]"                    => "The value 'x' cannot be converted to Numeric",
       "'abc'[1.0]"                  => "A String[] cannot use Float where Integer is expected",
       "'abc'[1,2,3]"                => "String supports [] with one or two arguments. Got 3",
       "Resource[0]"                 => 'First argument to Resource[] must be a resource type or a String. Got Fixnum',
       "Resource[a, 0]"              => 'Error creating type specialization of a Resource-Type, Cannot use Fixnum where String is expected',
       "File[0]"                     => 'Error creating type specialization of a File-Type, Cannot use Fixnum where String is expected',
-      "String[0]"                   => 'Error creating type specialization of a String-Type, Cannot use Fixnum where String is expected',
-      "Pattern[0]"                  => 'Error creating type specialization of a Pattern-Type, Cannot use Fixnum where String or Regexp is expected',
+      "String[a]"                   => "A Type's size constraint arguments must be a single Integer type, or 1-2 integers (or default). Got a String",
+      "Pattern[0]"                  => 'Error creating type specialization of a Pattern-Type, Cannot use Fixnum where String or Regexp or Pattern-Type or Regexp-Type is expected',
       "Regexp[0]"                   => 'Error creating type specialization of a Regexp-Type, Cannot use Fixnum where String or Regexp is expected',
       "Regexp[a,b]"                 => 'A Regexp-Type[] accepts 1 argument. Got 2',
       "true[0]"                     => "Operator '[]' is not applicable to a Boolean",
@@ -653,7 +679,6 @@ describe 'Puppet::Pops::Evaluator::EvaluatorImpl' do
           "Class[0]"            => /An Integer cannot be used where a String is expected/,
           "Class[/.*/]"         => /A Regexp cannot be used where a String is expected/,
           "Class[4.1415]"       => /A Float cannot be used where a String is expected/,
-          "Class[[1,2,3]]"      => /An Array cannot be used where a String is expected/,
           "Class[Integer]"      => /An Integer-Type cannot be used where a String is expected/,
           "Class[File['tmp']]"   => /A File\['tmp'\] Resource-Reference cannot be used where a String is expected/,
         }.each do | source, error_pattern|
@@ -828,6 +853,22 @@ describe 'Puppet::Pops::Evaluator::EvaluatorImpl' do
       source = "notify{a:} -> notify{b:}"
       parser.evaluate_string(scope, source, __FILE__)
       scope.compiler.should have_relationship(['Notify', 'a', '->', 'Notify', 'b'])
+    end
+
+    it 'should form a relation with [File[a], File[b]] -> [File[x], File[y]]' do
+      source = "[File[a], File[b]] -> [File[x], File[y]]"
+      parser.evaluate_string(scope, source, __FILE__)
+      scope.compiler.should have_relationship(['File', 'a', '->', 'File', 'x'])
+      scope.compiler.should have_relationship(['File', 'b', '->', 'File', 'x'])
+      scope.compiler.should have_relationship(['File', 'a', '->', 'File', 'y'])
+      scope.compiler.should have_relationship(['File', 'b', '->', 'File', 'y'])
+    end
+
+    it 'should tolerate (eliminate) duplicates in operands' do
+      source = "[File[a], File[a]] -> File[x]"
+      parser.evaluate_string(scope, source, __FILE__)
+      scope.compiler.should have_relationship(['File', 'a', '->', 'File', 'x'])
+      scope.compiler.relationships.size.should == 1
     end
 
     it 'should form a relation with <-' do

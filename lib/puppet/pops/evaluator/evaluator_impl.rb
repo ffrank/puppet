@@ -298,14 +298,16 @@ class Puppet::Pops::Evaluator::EvaluatorImpl
       assign(name, value, o, scope)
 
     when :'+='
-      # if value does not exist, return RHS (note that type check has already been made so correct type is ensured)
-      if !variable_exists?(name, scope)
-        return value
-      end
+      # if value does not exist and strict is on, looking it up fails, else it is nil or :undef
+      existing_value = get_variable_value(name, o, scope)
       begin
-        # Delegate to calculate function to deal with check of LHS, and perform ´+´ as arithmetic or concatenation the
-        # same way as ArithmeticExpression performs `+`.
-        assign(name, calculate(get_variable_value(name, o, scope), value, :'+', o.left_expr, o.right_expr, scope), o, scope)
+        if existing_value.nil? || existing_value == :undef
+          assign(name, value, o, scope)
+        else
+          # Delegate to calculate function to deal with check of LHS, and perform ´+´ as arithmetic or concatenation the
+          # same way as ArithmeticExpression performs `+`.
+          assign(name, calculate(existing_value, value, :'+', o.left_expr, o.right_expr, scope), o, scope)
+        end
       rescue ArgumentError => e
         fail(Issues::APPEND_FAILED, o, {:message => e.message})
       end
@@ -314,14 +316,17 @@ class Puppet::Pops::Evaluator::EvaluatorImpl
       # If an attempt is made to delete values from something that does not exists, the value is :undef (it is guaranteed to not
       # include any values the user wants deleted anyway :-)
       #
-      if !variable_exists?(name, scope)
-        return nil
-      end
+      # if value does not exist and strict is on, looking it up fails, else it is nil or :undef
+      existing_value = get_variable_value(name, o, scope)
       begin
+      if existing_value.nil? || existing_value == :undef
+        assign(name, :undef, o, scope)
+      else
         # Delegate to delete function to deal with check of LHS, and perform deletion
         assign(name, delete(get_variable_value(name, o, scope), value), o, scope)
+      end
       rescue ArgumentError => e
-        fail(Issues::APPEND_FAILED, o, {:message => e.message})
+        fail(Issues::APPEND_FAILED, o, {:message => e.message}, e)
       end
     else
       fail(Issues::UNSUPPORTED_OPERATOR, o, {:operator => o.operator})
@@ -456,7 +461,7 @@ class Puppet::Pops::Evaluator::EvaluatorImpl
         :operator => o.operator,
         :left_value => left,
         :right_value => right,
-        :detail => e.message})
+        :detail => e.message}, e)
     end
   end
 
@@ -492,7 +497,7 @@ class Puppet::Pops::Evaluator::EvaluatorImpl
     begin
       pattern = Regexp.new(pattern) unless pattern.is_a?(Regexp)
     rescue StandardError => e
-      fail(Issues::MATCH_NOT_REGEXP, o.right_expr, {:detail => e.message})
+      fail(Issues::MATCH_NOT_REGEXP, o.right_expr, {:detail => e.message}, e)
     end
     unless left.is_a?(String)
       fail(Issues::MATCH_NOT_STRING, o.left_expr, {:left_value => left})
@@ -946,7 +951,7 @@ class Puppet::Pops::Evaluator::EvaluatorImpl
       matched = right.match(left)
       set_match_data(matched, o, scope) # creates or clears ephemeral
       !!matched # convert to boolean
-    elsif right.is_a?(Puppet::Pops::Types::PAbstractType) && !left.is_a?(Puppet::Pops::Types::PAbstractType)
+    elsif right.is_a?(Puppet::Pops::Types::PAbstractType)
       # right is a type and left is not - check if left is an instance of the given type
       # (The reverse is not terribly meaningful - computing which of the case options that first produces
       # an instance of a given type).

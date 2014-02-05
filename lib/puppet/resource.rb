@@ -303,11 +303,8 @@ class Puppet::Resource
   # Convert our resource to a RAL resource instance.  Creates component
   # instances for resource types that don't exist.
   def to_ral
-    if typeklass = Puppet::Type.type(self.type)
-      return typeklass.new(self)
-    else
-      return Puppet::Type::Component.new(self)
-    end
+    typeklass = Puppet::Type.type(self.type) || Puppet::Type.type(:component)
+    typeklass.new(self)
   end
 
   def name
@@ -339,16 +336,7 @@ class Puppet::Resource
     return nil unless resource_type.type == :hostclass
 
     name = "#{resource_type.name}::#{param}"
-    # Lookup with injector (optionally), and if no value bound, lookup with "classic hiera"
-    result = nil
-    if scope.compiler.is_binder_active?
-      result = scope.compiler.injector.lookup(scope, name)
-    end
-    if result.nil?
-      lookup_with_databinding(name, scope)
-    else
-      result
-    end
+    lookup_with_databinding(name, scope)
   end
 
   private :lookup_external_default_for

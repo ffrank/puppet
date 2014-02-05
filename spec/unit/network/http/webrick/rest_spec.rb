@@ -9,23 +9,6 @@ describe Puppet::Network::HTTP::WEBrickREST do
     Puppet::Network::HTTP::WEBrickREST.ancestors.should be_include(Puppet::Network::HTTP::Handler)
   end
 
-  describe "when initializing" do
-    it "should call the Handler's initialization hook with its provided arguments as the server and handler" do
-      server = WEBrick::HTTPServer.new(:BindAddress => '127.0.0.1',
-                                       # Probablistically going to succeed
-                                       # even if we run more than one test
-                                       # instance at once.
-                                       :Port        => 40000 + rand(10000),
-                                       # Just discard any log output, thanks.
-                                       :Logger      => stub_everything('logger'))
-
-      Puppet::Network::HTTP::WEBrickREST.any_instance.
-        expects(:initialize_for_puppet).with(:server => server, :handler => "arguments")
-
-      Puppet::Network::HTTP::WEBrickREST.new(server, "arguments")
-    end
-  end
-
   describe "when receiving a request" do
     before do
       @request     = stub('webrick http request', :query => {}, :peeraddr => %w{eh boo host ip}, :client_cert => nil)
@@ -33,7 +16,7 @@ describe Puppet::Network::HTTP::WEBrickREST do
       @model_class = stub('indirected model class')
       @webrick     = stub('webrick http server', :mount => true, :[] => {})
       Puppet::Indirector::Indirection.stubs(:model).with(:foo).returns(@model_class)
-      @handler = Puppet::Network::HTTP::WEBrickREST.new(@webrick, :foo)
+      @handler = Puppet::Network::HTTP::WEBrickREST.new(@webrick)
     end
 
     it "should delegate its :service method to its :process method" do
@@ -56,16 +39,6 @@ describe Puppet::Network::HTTP::WEBrickREST do
     end
 
     describe "when using the Handler interface" do
-      it "should use the 'accept' request parameter as the Accept header" do
-        @request.expects(:[]).with("accept").returns "foobar"
-        @handler.accept_header(@request).should == "foobar"
-      end
-
-      it "should use the 'content-type' request header as the Content-Type header" do
-        @request.expects(:[]).with("content-type").returns "foobar"
-        @handler.content_type_header(@request).should == "foobar"
-      end
-
       it "should use the request method as the http method" do
         @request.expects(:request_method).returns "FOO"
         @handler.http_method(@request).should == "FOO"
@@ -133,6 +106,12 @@ describe Puppet::Network::HTTP::WEBrickREST do
       def a_request_querying(query_data)
         @request.expects(:query).returns(query_of(query_data))
         @request
+      end
+
+      def certificate_with_subject(subj)
+        cert = OpenSSL::X509::Certificate.new
+        cert.subject = OpenSSL::X509::Name.parse(subj)
+        cert
       end
 
       it "has no parameters when there is no query string" do
@@ -238,10 +217,8 @@ describe Puppet::Network::HTTP::WEBrickREST do
       end
 
       it "should pass the client's certificate name to model method if a certificate is present" do
-        subj = stub 'subj'
-        cert = stub 'cert', :subject => subj
-        @request.stubs(:client_cert).returns cert
-        Puppet::Util::SSL.expects(:cn_from_subject).with(subj).returns 'host.domain.com'
+        @request.stubs(:client_cert).returns(certificate_with_subject("/CN=host.domain.com"))
+
         @handler.params(@request)[:node].should == "host.domain.com"
       end
 
@@ -254,15 +231,12 @@ describe Puppet::Network::HTTP::WEBrickREST do
       end
 
       it "should resolve the node name with an ip address look-up if CN parsing fails" do
-        subj = stub 'subj'
-        cert = stub 'cert', :subject => subj
-        @request.stubs(:client_cert).returns cert
-        Puppet::Util::SSL.expects(:cn_from_subject).with(subj).returns nil
+        @request.stubs(:client_cert).returns(certificate_with_subject("/C=company"))
 
         @handler.expects(:resolve_node).returns(:resolved_node)
 
         @handler.params(@request)[:node].should == :resolved_node
       end
-   end
+    end
   end
 end

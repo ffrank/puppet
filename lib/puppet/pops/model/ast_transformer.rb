@@ -42,7 +42,7 @@ class Puppet::Pops::Model::AstTransformer
   def merge_location(hash, o)
     if o
       pos = {}
-      source_pos = Puppet::Pops::Utils.find_adapter(o, Puppet::Pops::Adapters::SourcePosAdapter)
+      source_pos = Puppet::Pops::Utils.find_closest_positioned(o)
       if source_pos
         pos[:line] = source_pos.line
         pos[:pos]  = source_pos.pos
@@ -267,25 +267,6 @@ class Puppet::Pops::Model::AstTransformer
 
   def transform_InExpression(o)
     ast o, AST::InOperator, :lval => transform(o.left_expr), :rval => transform(o.right_expr)
-  end
-
-  # This is a complex transformation from a modeled import to a Nop result (where the import took place),
-  # and calls to perform import/parsing etc. during the transformation.
-  # When testing syntax, the @importer does not have to be set, but it is not possible to check
-  # the actual import without inventing a new AST::ImportExpression with nop effect when evaluating.
-  def transform_ImportExpression(o)
-    if importer
-      o.files.each {|f|
-        unless f.is_a? Model::LiteralString
-          raise "Illegal import file expression. Must be a single quoted string"
-        end
-        importer.import(f.value)
-      }
-    end
-    # Crazy stuff
-    # Transformation of "import" needs to parse the other files at the time of transformation.
-    # Then produce a :nop, since nothing should be evaluated.
-    ast o, AST::Nop, {}
   end
 
   # Assignment in AST 3.1 is to variable or hasharray accesses !!! See Bug #16116

@@ -179,13 +179,15 @@ class Puppet::Parser::Scope
   # Returns true if the variable of the given name is set to any value (including nil)
   #
   def exist?(name)
-    effective_symtable(true).include?(name)
+    next_scope = inherited_scope || enclosing_scope
+    effective_symtable(true).include?(name) || next_scope && next_scope.exist?(name)
   end
 
-  # Returns true if the given name is bound in the current (most nested) scope.
+  # Returns true if the given name is bound in the current (most nested) scope for assignments.
   #
   def bound?(name)
-    effective_symtable(true).bound?(name)
+    # Do not look in ephemeral (match scope), the semantics is to answer if an assignable variable is bound
+    effective_symtable(false).bound?(name)
   end
 
   # Is the value true?  This allows us to control the definition of truth
@@ -364,14 +366,19 @@ class Puppet::Parser::Scope
       if next_scope
         next_scope.lookupvar(name, options)
       else
-        variable_not_found()
+        variable_not_found(name)
       end
     end
   end
 
-  def variable_not_found
+  def variable_not_found(name, reason=nil)
     if Puppet[:strict_variables]
-      throw :undefined_variable
+      if Puppet[:evaluator] == 'future' && Puppet[:parser] == 'future'
+        throw :undefined_variable
+      else
+        reason_msg = reason.nil? ? '' : "; #{reason}"
+        raise Puppet::ParseError, "Undefined variable #{name.inspect}#{reason_msg}"
+      end
     else
       nil
     end
@@ -441,15 +448,18 @@ class Puppet::Parser::Scope
         qualified_scope(class_name).lookupvar(variable_name, position)
       end
     rescue RuntimeError => e
-      location = if position[:lineproc]
-                   " at #{position[:lineproc].call}"
-                 elsif position[:file] && position[:line]
-                   " at #{position[:file]}:#{position[:line]}"
-                 else
-                   ""
-                 end
-      warning "Could not look up qualified variable '#{class_name}::#{variable_name}'; #{e.message}#{location}"
-      variable_not_found()
+      unless Puppet[:strict_variables]
+        # Do not issue warning if strict variables are on, as an error will be raised by variable_not_found
+        location = if position[:lineproc]
+                     " at #{position[:lineproc].call}"
+                   elsif position[:file] && position[:line]
+                     " at #{position[:file]}:#{position[:line]}"
+                   else
+                     ""
+                   end
+        warning "Could not look up qualified variable '#{class_name}::#{variable_name}'; #{e.message}#{location}"
+      end
+      variable_not_found("#{class_name}::#{variable_name}", e.message)
     end
   end
 
@@ -604,7 +614,7 @@ class Puppet::Parser::Scope
   # @param use_ephemeral [Boolean] whether the top most ephemeral (of any kind) should be used or not
   def effective_symtable use_ephemeral
     s = @ephemeral.last
-    return s if use_ephemeral
+    return s || @symtable if use_ephemeral
 
     # Why check if ephemeral is a Hash ??? Not needed, a hash cannot be a parent scope ???
     while s && !(s.is_a?(Hash) || s.is_local_scope?())
@@ -714,7 +724,7 @@ class Puppet::Parser::Scope
   end
 
   def find_defined_resource_type(type)
-    environment.known_resource_types.find_definition(namespaces, type.to_s.downcase)
+    known_resource_types.find_definition(namespaces, type.to_s.downcase)
   end
 
 

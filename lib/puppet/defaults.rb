@@ -266,8 +266,9 @@ module Puppet
     },
     :binder => {
       :default => false,
-      :desc    => "Turns the binding system on or off. This includes hiera-2 and data in modules.  The binding system aggregates data from
-      modules and other locations and makes them available for lookup.  The binding system is experimental and any or all of it may change.",
+      :desc    => "Turns the binding system on or off. This includes bindings in modules.
+        The binding system aggregates data from modules and other locations and makes them available for lookup.
+        The binding system is experimental and any or all of it may change.",
       :type    => :boolean,
     },
     :binder_config => {
@@ -560,6 +561,7 @@ EOT
       :type   => :directory,
       :mode => 0750,
       :owner => "service",
+      :group => "service",
       :desc => "The private key directory."
     },
     :privatedir => {
@@ -594,8 +596,9 @@ EOT
     :hostprivkey => {
       :default => "$privatekeydir/$certname.pem",
       :type   => :file,
-      :mode => 0600,
+      :mode => 0640,
       :owner => "service",
+      :group => "service",
       :desc => "Where individual hosts store and look for their private key."
     },
     :hostpubkey => {
@@ -728,7 +731,7 @@ EOT
       :owner => "service",
       :group => "service",
       :mode => 0660,
-      :desc => "Where the CA stores the password for the private key"
+      :desc => "Where the CA stores the password for the private key."
     },
     :serial => {
       :default => "$cadir/serial",
@@ -775,7 +778,7 @@ EOT
     :ca_ttl => {
       :default    => "5y",
       :type       => :duration,
-      :desc       => "The default TTL for new certificates. If this setting is set, ca_days is ignored.
+      :desc       => "The default TTL for new certificates.
       #{AS_DURATION}"
     },
     :req_bits => {
@@ -792,7 +795,8 @@ EOT
       :mode => 0644,
       :owner => "service",
       :group => "service",
-      :desc => "A Complete listing of all certificates"
+      :desc => "The inventory file. This is a text file to which the CA writes a
+        complete listing of all certificates."
     }
   )
 
@@ -807,7 +811,7 @@ EOT
       :config => {
           :type => :file,
           :default  => "$confdir/${config_file_name}",
-          :desc     => "The configuration file for the current puppet application",
+          :desc     => "The configuration file for the current puppet application.",
       },
       :pidfile => {
           :type => :file,
@@ -840,13 +844,14 @@ EOT
     :manifest => {
       :default    => "$manifestdir/site.pp",
       :type       => :file,
-      :desc       => "The entry-point manifest for puppet master.",
+      :desc       => "The entry-point manifest file for puppet master or a directory of manifests
+        to be evaluated in alphabetical order.",
     },
     :code => {
       :default    => "",
       :desc       => "Code to parse directly.  This is essentially only used
       by `puppet`, and should only be set if you're writing your own Puppet
-      executable",
+      executable.",
     },
     :masterlog => {
       :default => "$logdir/puppetmaster.log",
@@ -951,9 +956,19 @@ EOT
       :desc => "The directory in which serialized data is stored, usually in a subdirectory."},
     :reports => {
       :default    => "store",
-      :desc       => "The list of reports to generate.  All reports are looked for
-        in `puppet/reports/name.rb`, and multiple report names should be
-        comma-separated (whitespace is okay).",
+      :desc       => "The list of report handlers to use. When using multiple report handlers,
+        their names should be comma-separated, with whitespace allowed. (For example,
+        `reports = http, tagmail`.)
+
+        This setting is relevant to puppet master and puppet apply. The puppet
+        master will call these report handlers with the reports it receives from
+        agent nodes, and puppet apply will call them with its own report. (In
+        all cases, the node applying the catalog must have `report = true`.)
+
+        See the report reference for information on the built-in report
+        handlers; custom report handlers can also be loaded from modules.
+        (Report handlers are loaded from the lib directory, at
+        `puppet/reports/NAME.rb`.)",
     },
     :reportdir => {
       :default => "$vardir/reports",
@@ -961,12 +976,15 @@ EOT
       :mode => 0750,
       :owner => "service",
       :group => "service",
-      :desc => "The directory in which to store reports
-        received from the client.  Each client gets a separate
-        subdirectory."},
+      :desc => "The directory in which to store reports. Each node gets
+        a separate subdirectory in this directory. This setting is only
+        used when the `store` report processor is enabled (see the
+        `reports` setting)."},
     :reporturl => {
       :default    => "http://localhost:3000/reports/upload",
-      :desc       => "The URL used by the http reports processor to send reports",
+      :desc       => "The URL that reports should be forwarded to. This setting
+        is only used when the `http` report processor is enabled (see the
+        `reports` setting).",
     },
     :fileserverconfig => {
       :default    => "$confdir/fileserver.conf",
@@ -1005,11 +1023,11 @@ EOT
         :default  => "$vardir/devices",
         :type     => :directory,
         :mode     => "750",
-        :desc     => "The root directory of devices' $vardir",
+        :desc     => "The root directory of devices' $vardir.",
     },
     :deviceconfig => {
         :default  => "$confdir/device.conf",
-        :desc     => "Path to the device config file for puppet device",
+        :desc     => "Path to the device config file for puppet device.",
     }
   )
 
@@ -1088,7 +1106,7 @@ EOT
     },
     :server => {
       :default => "puppet",
-      :desc => "The server to which the puppet agent should connect"
+      :desc => "The puppet master server to which the puppet agent should connect."
     },
     :use_srv_records => {
       :default    => false,
@@ -1102,7 +1120,7 @@ EOT
     :ignoreschedules => {
       :default    => false,
       :type       => :boolean,
-    :desc         => "Boolean; whether puppet agent should ignore schedules.  This is useful
+      :desc       => "Boolean; whether puppet agent should ignore schedules.  This is useful
       for initial puppet agent runs.",
     },
     :default_schedules => {
@@ -1118,7 +1136,27 @@ EOT
     :noop => {
       :default    => false,
       :type       => :boolean,
-      :desc       => "Whether puppet agent should be run in noop mode.",
+      :desc       => "Whether to apply catalogs in noop mode, which allows Puppet to
+        partially simulate a normal run. This setting affects puppet agent and
+        puppet apply.
+
+        When running in noop mode, Puppet will check whether each resource is in sync,
+        like it does when running normally. However, if a resource attribute is not in
+        the desired state (as declared in the catalog), Puppet will take no
+        action, and will instead report the changes it _would_ have made. These
+        simulated changes will appear in the report sent to the puppet master, or
+        be shown on the console if running puppet agent or puppet apply in the
+        foreground. The simulated changes will not send refresh events to any
+        subscribing or notified resources, although Puppet will log that a refresh
+        event _would_ have been sent.
+
+        **Important note:**
+        [The `noop` metaparameter](http://docs.puppetlabs.com/references/latest/metaparameter.html#noop)
+        allows you to apply individual resources in noop mode, and will override
+        the global value of the `noop` setting. This means a resource with
+        `noop => false` _will_ be changed if necessary, even when running puppet
+        agent with `noop = true` or `--noop`. (Conversely, a resource with
+        `noop => true` will only be simulated, even when noop mode is globally disabled.)",
     },
     :runinterval => {
       :default  => "30m",
@@ -1723,10 +1761,42 @@ EOT
         be used.
 
         The `future` parser is a "time travel to the future" allowing early
-        exposure to new language features. What these fatures are will vary from
+        exposure to new language features. What these features are will vary from
         release to release and they may be invididually configurable.
 
         Available Since Puppet 3.2.
+      EOT
+    },
+    :evaluator => {
+      :default => "future",
+      :hook => proc do |value|
+        if !['future', 'current'].include?(value)
+          raise "evaluator can only be set to 'future' or 'current', got '#{value}'"
+        end
+      end,
+      :desc => <<-'EOT'
+        Selects the evaluator to use for evaluation of puppet manifests parsed
+        with the option "parser = future". Available choices are `current`,
+        and `future` (the default).
+
+        The `future` evaluator means that the new evaluator (experimental) will
+        be used, whereas 'current' means that the "parser future" option will
+        transform the parsed result to Puppet 3x and use the regular
+        evaluator.
+
+        The `future` evaluator is a "time travel to the future" allowing early
+        exposure to new language features. What these features are will vary from
+        release to release and they may be invididually configurable.
+
+        The default for this parameter is 'future', which means that the flag is
+        there to turn off the future evaluator for A / B testing.
+
+        The experimental features "parser future, evaluator future" are expected
+        to become what is released as the standard / current in Puppet 4.x.
+
+        The evaluator option has no effect unless parser is set to 'future'.
+
+        Available Since Puppet 3.5.
       EOT
     },
    :max_errors => {

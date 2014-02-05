@@ -1,22 +1,7 @@
 #! /usr/bin/env ruby
 require 'spec_helper'
-
 require 'puppet/file_serving/metadata'
-
-# the json-schema gem doesn't support windows
-if not Puppet.features.microsoft_windows?
-  FILE_METADATA_SCHEMA = JSON.parse(File.read(File.join(File.dirname(__FILE__), '../../../api/schemas/file_metadata.json')))
-
-  describe "catalog schema" do
-    it "should validate against the json meta-schema" do
-      JSON::Validator.validate!(JSON_META_SCHEMA, FILE_METADATA_SCHEMA)
-    end
-  end
-
-  def validate_json_for_file_metadata(file_metadata)
-    JSON::Validator.validate!(FILE_METADATA_SCHEMA, file_metadata.to_pson)
-  end
-end
+require 'matchers/json'
 
 describe Puppet::FileServing::Metadata do
   let(:foobar) { File.expand_path('/foo/bar') }
@@ -103,6 +88,7 @@ describe Puppet::FileServing::Metadata do
 end
 
 describe Puppet::FileServing::Metadata do
+  include JSONMatchers
   include PuppetSpec::Files
 
   shared_examples_for "metadata collector" do
@@ -154,8 +140,8 @@ describe Puppet::FileServing::Metadata do
           end
         end
 
-        it "should validate against the schema", :unless => Puppet.features.microsoft_windows? do
-          validate_json_for_file_metadata(metadata)
+        it "should validate against the schema" do
+          expect(metadata.to_pson).to validate_against('api/schemas/file_metadata.json')
         end
       end
 
@@ -179,9 +165,9 @@ describe Puppet::FileServing::Metadata do
           metadata.checksum.should == "{ctime}#{time}"
         end
 
-        it "should validate against the schema", :unless => Puppet.features.microsoft_windows? do
+        it "should validate against the schema" do
           metadata.collect
-          validate_json_for_file_metadata(metadata)
+          expect(metadata.to_pson).to validate_against('api/schemas/file_metadata.json')
         end
       end
     end
@@ -201,21 +187,21 @@ describe Puppet::FileServing::Metadata do
         let(:path) { tmpfile('file_serving_metadata_link') }
         let(:target) { tmpfile('file_serving_metadata_target') }
         let(:checksum) { Digest::MD5.hexdigest("some content\n") }
-        let(:fmode) { Puppet::FileSystem::File.new(path).lstat.mode & 0777 }
+        let(:fmode) { Puppet::FileSystem.lstat(path).mode & 0777 }
 
         before :each do
           File.open(target, "wb") {|f| f.print("some content\n")}
           set_mode(0644, target)
 
-          Puppet::FileSystem::File.new(target).symlink(path)
+          Puppet::FileSystem.symlink(target, path)
         end
 
         it "should read links instead of returning their checksums" do
           metadata.destination.should == target
         end
 
-        it "should validate against the schema", :unless => Puppet.features.microsoft_windows? do
-          validate_json_for_file_metadata(metadata)
+        it "should validate against the schema" do
+          expect(metadata.to_pson).to validate_against('api/schemas/file_metadata.json')
         end
       end
     end
@@ -248,8 +234,8 @@ describe Puppet::FileServing::Metadata do
         proc { metadata.collect}.should raise_error(Errno::ENOENT)
       end
 
-      it "should validate against the schema", :unless => Puppet.features.microsoft_windows? do
-        validate_json_for_file_metadata(metadata)
+      it "should validate against the schema" do
+        expect(metadata.to_pson).to validate_against('api/schemas/file_metadata.json')
       end
     end
   end
@@ -325,7 +311,8 @@ describe Puppet::FileServing::Metadata, " when pointing to a link", :if => Puppe
       @file = Puppet::FileServing::Metadata.new(path, :links => :manage)
       stat = stub("stat", :uid => 1, :gid => 2, :ftype => "link", :mode => 0755)
       stub_file = stub(:readlink => "/some/other/path", :lstat => stat)
-      Puppet::FileSystem::File.expects(:new).with(path).at_least_once.returns stub_file
+      Puppet::FileSystem.expects(:lstat).with(path).at_least_once.returns stat
+      Puppet::FileSystem.expects(:readlink).with(path).at_least_once.returns "/some/other/path"
       @checksum = Digest::MD5.hexdigest("some content\n") # Remove these when :managed links are no longer checksumed.
       @file.stubs(:md5_file).returns(@checksum)           #
 
@@ -356,9 +343,8 @@ describe Puppet::FileServing::Metadata, " when pointing to a link", :if => Puppe
       path = "/base/path/my/file"
       @file = Puppet::FileServing::Metadata.new(path, :links => :follow)
       stat = stub("stat", :uid => 1, :gid => 2, :ftype => "file", :mode => 0755)
-      mocked_file = mock(path, :stat => stat)
-      Puppet::FileSystem::File.expects(:new).with(path).at_least_once.returns mocked_file
-      mocked_file.expects(:readlink).never
+      Puppet::FileSystem.expects(:stat).with(path).at_least_once.returns stat
+      Puppet::FileSystem.expects(:readlink).never
 
       if Puppet.features.microsoft_windows?
         win_stat = stub('win_stat', :owner => 'snarf', :group => 'thundercats',

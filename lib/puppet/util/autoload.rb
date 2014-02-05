@@ -45,7 +45,7 @@ class Puppet::Util::Autoload
       file, old_mtime = loaded[name]
       return true unless file == get_file(name)
       begin
-        old_mtime != File.mtime(file)
+        old_mtime.to_i != File.mtime(file).to_i
       rescue Errno::ENOENT
         true
       end
@@ -85,7 +85,7 @@ class Puppet::Util::Autoload
     # returns nil if no file is found
     def get_file(name, env=nil)
       name = name + '.rb' unless name =~ /\.rb$/
-      path = search_directories(env).find { |dir| Puppet::FileSystem::File.exist?(File.join(dir, name)) }
+      path = search_directories(env).find { |dir| Puppet::FileSystem.exist?(File.join(dir, name)) }
       path and File.join(path, name)
     end
 
@@ -106,8 +106,6 @@ class Puppet::Util::Autoload
       # can skip that - and save some 2,155 invocations of require in my real
       # world testing. --daniel 2012-07-10
       require 'puppet/node/environment' unless defined?(Puppet::Node::Environment)
-
-      real_env = Puppet::Node::Environment.new(env)
 
       # We're using a per-thread cache of module directories so that we don't
       # scan the filesystem each time we try to load something. This is reset
@@ -135,6 +133,8 @@ class Puppet::Util::Autoload
       # "app_defaults_initialized?" method on the main puppet Settings object.
       # --cprice 2012-03-16
       if Puppet.settings.app_defaults_initialized?
+        real_env = Puppet::Node::Environment.new(env)
+
         # if the app defaults have been initialized then it should be safe to access the module path setting.
         $env_module_directories[real_env] ||= real_env.modulepath.collect do |dir|
           Dir.entries(dir).reject { |f| f =~ /^\./ }.collect { |f| File.join(dir, f) }

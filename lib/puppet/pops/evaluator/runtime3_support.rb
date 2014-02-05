@@ -13,6 +13,14 @@ module Puppet::Pops::Evaluator::Runtime3Support
   # @raise [Puppet::ParseError] an evaluation error initialized from the arguments (TODO: Change to EvaluationError?)
   #
   def fail(issue, semantic, options={}, except=nil)
+    if except.nil?
+      # Want a stacktrace, and it must be passed as an exception
+      begin
+       raise EvaluationError.new()
+      rescue EvaluationError => e
+        except = e
+      end
+    end
     diagnostic_producer.accept(issue, semantic, options, except)
   end
 
@@ -26,6 +34,18 @@ module Puppet::Pops::Evaluator::Runtime3Support
   # setting (extraction is somewhat expensive since 3x requires line instead of offset).
   #
   def set_variable(name, value, o, scope)
+    # Scope also checks this but requires that location information are passed as options.
+    # Those are expensive to calculate and a test is instead made here to enable failing with better information.
+    # The error is not specific enough to allow catching it - need to check the actual message text.
+    # TODO: Improve the messy implementation in Scope.
+    #
+    if scope.bound?(name)
+      if Puppet::Parser::Scope::RESERVED_VARIABLE_NAMES.include?(name)
+        fail(Puppet::Pops::Issues::ILLEGAL_RESERVED_ASSIGNMENT, o, {:name => name} )
+      else
+        fail(Puppet::Pops::Issues::ILLEGAL_REASSIGNMENT, o, {:name => name} )
+      end
+    end
     scope.setvar(name, value)
   end
 
@@ -140,7 +160,7 @@ module Puppet::Pops::Evaluator::Runtime3Support
     # until the relationship is evaluated by the compiler (at the end). When evaluation takes place, the (empty reference) Resource instances
     # are converted to String (!?! WTF) on the simple format "#{type}[#{title}]", and the catalog is told to find a resource, by giving
     # it this string. If it cannot find the resource it fails, else the before/notify parameter is appended with the target.
-    # The search for the resource being with (you guessed it) again creating an (empty reference) resource from type and title (WTF?!?!).
+    # The search for the resource begin with (you guessed it) again creating an (empty reference) resource from type and title (WTF?!?!).
     # The catalog now uses the reference resource to compute a key [r.type, r.title.to_s] and also gets a uniqueness key from the
     # resource (This is only a reference type created from title and type). If it cannot find it with the first key, it uses the
     # uniqueness key to lookup.
@@ -200,8 +220,9 @@ module Puppet::Pops::Evaluator::Runtime3Support
   end
 
   def call_function(name, args, o, scope)
-    # Should arguments be mapped from :undef to '' (3x functions expects this - but it is bad)
-    mapped_args = args.map {|a| a == :undef ? '' : a }
+    # Arguments must be mapped since functions are unaware of the new and magical creatures in 4x.
+    # NOTE: Passing an empty string last converts :undef to empty string
+    mapped_args = args.map {|a| convert(a, scope, '') }
     scope.send("function_#{name}", mapped_args)
   end
 
@@ -215,7 +236,7 @@ module Puppet::Pops::Evaluator::Runtime3Support
     file, line = extract_file_line(o)
     Puppet::Parser::Resource::Param.new(
       :name   => name,
-      :value  => convert(value, scope), # converted to 3x since 4x supports additional objects / types
+      :value  => convert(value, scope, :undef), # converted to 3x since 4x supports additional objects / types
       :source => scope.source, :line => line, :file => file,
       :add    => operator == :'+>'
     )
@@ -355,7 +376,7 @@ module Puppet::Pops::Evaluator::Runtime3Support
   end
 
   def initialize
-    @@convert_visitor   ||= Puppet::Pops::Visitor.new(self, "convert", 1, 1)
+    @@convert_visitor   ||= Puppet::Pops::Visitor.new(self, "convert", 2, 2)
   end
 
   # Converts 4x supported values to 3x values. This is required because
@@ -363,43 +384,56 @@ module Puppet::Pops::Evaluator::Runtime3Support
   # regular expressions. Unfortunately this has to be done for array and hash as well.
   # A complication is that catalog types needs to be resolved against the scope.
   #
-  def convert(o, scope)
-    @@convert_visitor.visit_this_1(self, o, scope)
+  def convert(o, scope, undef_value)
+    @@convert_visitor.visit_this_2(self, o, scope, undef_value)
   end
 
-  def convert_Object(o, scope)
+
+  def convert_NilClass(o, scope, undef_value)
+    undef_value
+  end
+
+  def convert_Object(o, scope, undef_value)
     o
   end
 
-  def convert_Array(o, scope)
-    o.map {|x| convert(x, scope) }
+  def convert_Array(o, scope, undef_value)
+    o.map {|x| convert(x, scope, undef_value) }
   end
 
-  def convert_Hash(o, scope)
+  def convert_Hash(o, scope, undef_value)
     result = {}
-    o.each {|k,v| result[convert(k, scope)] = convert(v, scope) }
+    o.each {|k,v| result[convert(k, scope, undef_value)] = convert(v, scope, undef_value) }
     result
   end
 
-  def convert_Regexp(o, scope)
+  def convert_Regexp(o, scope, undef_value)
     # Puppet 3x cannot handle parameter values that are reqular expressions. Turn into regexp string in
     # source form
     o.inspect
   end
 
-  def convert_PAbstractType(o, scope)
-    # Convert all other types to their string forms
-    o.to_s
+  def convert_Symbol(o, scope, undef_value)
+    case o
+    when :undef
+      undef_value  # 3x wants :undef as empty string in function
+    else
+      o   # :default, and all others are verbatim since they are new in future evaluator
+    end
   end
 
-  def convert_PResourceType(o,scope)
+  def convert_PAbstractType(o, scope, undef_value)
+    o
+  end
+
+  def convert_PResourceType(o,scope, undef_value)
     # Needs conversion by calling scope to resolve the name and possibly return a different name
     # Resolution can only be called with an array, and returns an array. Here there is only one name
     type, titles = scope.resolve_type_and_titles(o.type_name, [o.title])
     Puppet::Resource.new(type, titles[0])
   end
 
-  def convert_PHostClassType(o, scope)
+  def convert_PHostClassType(o, scope, undef_value)
     # Needs conversion by calling scope to resolve the name and possibly return a different name
     # Resolution can only be called with an array, and returns an array. Here there is only one name
     type, titles = scope.resolve_type_and_titles('class', [o.class_name])
@@ -423,9 +457,14 @@ module Puppet::Pops::Evaluator::Runtime3Support
   end
 
   def extract_file_line(o)
-    source_pos = Puppet::Pops::Utils.find_adapter(o, Puppet::Pops::Adapters::SourcePosAdapter)
+    source_pos = Puppet::Pops::Utils.find_closest_positioned(o)
     return [nil, -1] unless source_pos
     [source_pos.locator.file, source_pos.line]
+  end
+
+  def find_closest_positioned(o)
+    return nil if o.nil? || o.is_a?(Puppet::Pops::Model::Program)
+    o.offset.nil? ? find_closest_positioned(o.eContainer) : Puppet::Pops::Adapters::SourcePosAdapter.adapt(o)
   end
 
   # Creates a diagnostic producer
@@ -443,5 +482,8 @@ module Puppet::Pops::Evaluator::Runtime3Support
       Puppet::Pops::IssueReporter.assert_and_report(self, {:message => "Evaluation Error:" })
       raise ArgumentError, "Internal Error: Configuration of runtime error handling wrong: should have raised exception"
     end
+  end
+
+  class EvaluationError < StandardError
   end
 end

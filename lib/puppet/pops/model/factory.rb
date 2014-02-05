@@ -16,6 +16,7 @@ class Puppet::Pops::Model::Factory
   # Shared build_visitor, since there are many instances of Factory being used
   @@build_visitor = Puppet::Pops::Visitor.new(self, "build")
   @@interpolation_visitor = Puppet::Pops::Visitor.new(self, "interpolate")
+
   # Initialize a factory with a single object, or a class with arguments applied to build of
   # created instance
   #
@@ -43,7 +44,7 @@ class Puppet::Pops::Model::Factory
   # Polymorphic interpolate
   def interpolate()
     begin
-      @@interpolation_visitor.visit_this(self, current)
+      @@interpolation_visitor.visit_this_0(self, current)
     rescue =>e
       # require 'debugger'; debugger # enable this when in trouble...
       raise e
@@ -133,20 +134,6 @@ class Puppet::Pops::Model::Factory
     o
   end
 
-  #  # @param name [String] a valid classname
-  #  # @param parameters [Array<Model::Parameter>] may be empty
-  #  # @param body [Array<Expression>, Expression, nil] expression that constitute the body
-  #  # @return [Model::HostClassDefinition] configured from the parameters
-  #  #
-  #  def build_ResourceTypeDefinition(o, name, parameters, body)
-  #    build_NamedDefinition(o, name, parameters, body)
-  #    o.name = name
-  #    parameters.each {|p| o.addParameters(build(p)) }
-  #    b = f_build_body(body)
-  #    o.body = b.current if b
-  #    o
-  #  end
-
   def build_ResourceOverrideExpression(o, resources, attribute_operations)
     o.resources = build(resources)
     attribute_operations.each {|ao| o.addOperations(build(ao)) }
@@ -177,12 +164,6 @@ class Puppet::Pops::Model::Factory
   def build_LiteralInteger(o, val, radix)
     o.value = val
     o.radix = radix
-    o
-  end
-
-  def build_ImportExpression(o, files)
-    # The argument files has already been built
-    files.each {|f| o.addFiles(to_ops(f)) }
     o
   end
 
@@ -303,10 +284,14 @@ class Puppet::Pops::Model::Factory
     o
   end
 
-  def build_Program(o, body, definitions)
+  def build_Program(o, body, definitions, locator)
     o.body = to_ops(body)
     # non containment
     definitions.each { |d| o.addDefinitions(d) }
+    o.source_ref = locator.file
+    o.source_text = locator.string
+    o.line_offsets = locator.line_index
+    o.locator = locator
     o
   end
 
@@ -450,35 +435,13 @@ class Puppet::Pops::Model::Factory
   # Records the position (start -> end) and computes the resulting length.
   #
   def record_position(start_locatable, end_locatable)
-    Puppet::Pops::Adapters::SourcePosAdapter.adapt(current) do |a|
-      if start_locatable && end_locatable
-        a.locatable = Puppet::Pops::Parser::Locatable::Range.new(start_locatable, end_locatable)
-      else
-        a.locatable = Puppet::Pops::Parser::Locatable::Lazy.new(start_locatable)
-      end
-
-#      a.line   = start_pos.line
-#      a.offset = start_pos.offset
-#      a.pos    = start_pos.pos
-#      a.length = start_pos.length
-#      if(end_pos.offset && end_pos.length)
-#        a.length = end_pos.offset + end_pos.length - start_pos.offset
-#      end
-    end
-    self
-  end
-
-  # Records the origin file of an element
-  # Does nothing if file is nil.
-  #
-  # @param file [String,nil] the file/path to the origin, may contain URI scheme of file: or some other URI scheme
-  # @return [Factory] returns self
-  #
-  def record_origin(file)
-    return self unless file
-    Puppet::Pops::Adapters::OriginAdapter.adapt(current) do |a|
-       a.origin = file
-    end
+    from = start_locatable.is_a?(Puppet::Pops::Model::Factory) ? start_locatable.current : start_locatable
+    to   = end_locatable.is_a?(Puppet::Pops::Model::Factory) ? end_locatable.current  : end_locatable
+    to = from if to.nil?
+    o = current
+    # record information directly in the Model::Positioned object
+    o.offset = from.offset
+    o.length ||= to.offset - from.offset + to.length
     self
   end
 
@@ -636,11 +599,6 @@ class Puppet::Pops::Model::Factory
 
   def self.COLLECT(type_expr, query_expr, attribute_operations)
     new(Model::CollectExpression, type_expr, query_expr, attribute_operations)
-#    new(Model::CollectExpression, Puppet::Pops::Model::Factory.fqr(type_expr), query_expr, attribute_operations)
-  end
-
-  def self.IMPORT(files)
-    new(Model::ImportExpression, files)
   end
 
   def self.NAMED_ACCESS(type_name, bodies)
@@ -663,8 +621,8 @@ class Puppet::Pops::Model::Factory
     new(Model::ResourceBody, resource_title, attribute_operations)
   end
 
-  def self.PROGRAM(body, definitions)
-    new(Model::Program, body, definitions)
+  def self.PROGRAM(body, definitions, locator)
+    new(Model::Program, body, definitions, locator)
   end
 
   # Builds a BlockExpression if args size > 1, else the single expression/value in args
@@ -693,23 +651,19 @@ class Puppet::Pops::Model::Factory
   end
 
   # Transforms an array of expressions containing literal name expressions to calls if followed by an
-  # expression, or expression list. Also transforms a "call" to `import` into an ImportExpression.
+  # expression, or expression list.
   #
   def self.transform_calls(expressions)
     expressions.reduce([]) do |memo, expr|
       expr = expr.current if expr.is_a?(Puppet::Pops::Model::Factory)
       name = memo[-1]
       if name.is_a? Model::QualifiedName
-        if name.value() == 'import'
-          memo[-1] = Puppet::Pops::Model::Factory.IMPORT(expr.is_a?(Array) ? expr : [expr])
-        else
-          memo[-1] = Puppet::Pops::Model::Factory.CALL_NAMED(name, false, expr.is_a?(Array) ? expr : [expr])
-          if expr.is_a?(Model::CallNamedFunctionExpression)
-            # Patch statement function call to expression style
-            # This is needed because it is first parsed as a "statement" and the requirement changes as it becomes
-            # an argument to the name to call transform above.
-            expr.rval_required = true
-          end
+        memo[-1] = Puppet::Pops::Model::Factory.CALL_NAMED(name, false, expr.is_a?(Array) ? expr : [expr])
+        if expr.is_a?(Model::CallNamedFunctionExpression)
+          # Patch statement function call to expression style
+          # This is needed because it is first parsed as a "statement" and the requirement changes as it becomes
+          # an argument to the name to call transform above.
+          expr.rval_required = true
         end
       else
         memo << expr
@@ -810,15 +764,6 @@ class Puppet::Pops::Model::Factory
     args.each {|x| o.addArguments(to_ops(x)) }
     o
   end
-
-  #  # @param rval_required [Boolean] if the call must produce a value
-  #  def build_CallNamedFunctionExpression(o, name, rval_required, *args)
-  #    build_CallExpression(o, name, rval_required, *args)
-  ##    o.functor_expr = build(name)
-  ##    o.rval_required = rval_required
-  ##    args.each {|x| o.addArguments(build(x)) }
-  #    o
-  #  end
 
   def build_CallMethodExpression(o, functor, rval_required, lambda, *args)
     build_CallExpression(o, functor, rval_required, *args)

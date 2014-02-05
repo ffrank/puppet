@@ -63,6 +63,13 @@ module Puppet::Pops::Types::TypeFactory
     t
   end
 
+  # Produces the Optional type, i.e. a short hand for Variant[T, Undef]
+  def self.optional(optional_type = nil)
+    t = Types::POptionalType.new
+    t.optional_type = optional_type
+    t
+  end
+
   # Produces the Enum type, optionally with specific string values
   # @api public
   #
@@ -115,15 +122,25 @@ module Puppet::Pops::Types::TypeFactory
         re_T = Types::PRegexpType.new()
         re_T.pattern = re
         t.addPatterns(re_T)
+
       when Regexp
-        re_T = Type::PRegexpType.new()
+        re_T = Types::PRegexpType.new()
         # Regep.to_s includes options user did not enter and does not escape source
         # to work either as a string or as a // regexp. The inspect method does a better
         # job, but includes the //
         re_T.pattern = re.inspect[1..-2]
         t.addPatterns(re_T)
-      else
-       raise ArgumentError, "Only String and Regexp are allowed: got '#{re.class}"
+
+      when Types::PRegexpType
+        t.addPatterns(re.copy)
+
+      when Types::PPatternType
+        re.patterns.each do |p|
+          t.addPatterns(p.copy)
+        end
+
+     else
+       raise ArgumentError, "Only String, Regexp, Pattern-Type, and Regexp-Type are allowed: got '#{re.class}"
       end
     end
     t
@@ -222,6 +239,15 @@ module Puppet::Pops::Types::TypeFactory
     type
   end
 
+  # Produces a type for Type[T]
+  # @api public
+  #
+  def self.type_type(inst_type = nil)
+    type = Types::PType.new()
+    type.type = inst_type
+    type
+  end
+
   # Produce a type corresponding to the class of given unless given is a String, Class or a PObjectType.
   # When a String is given this is taken as a classname.
   #
@@ -235,7 +261,7 @@ module Puppet::Pops::Types::TypeFactory
       type.ruby_class = o
       type
     else
-      @type_calculator.infer(o)
+      @type_calculator.infer_generic(o)
     end
   end
 
@@ -258,5 +284,22 @@ module Puppet::Pops::Types::TypeFactory
       type.ruby_class = o.class.name
       type
     end
+  end
+
+  # Generic creator of a RubyType - allows creating the Ruby type with nil name, or String name.
+  # Also see ruby(o) which performs inference, or mapps a Ruby Class to its name.
+  #
+  def self.ruby_type(class_name = nil)
+    type = Types::PRubyType.new()
+    type.ruby_class = class_name
+    type
+  end
+
+  # Sets the accepted size range of a collection if something other than the default 0 to Infinity
+  # is wanted. The semantics for from/to are the same as for #range
+  #
+  def self.constrain_size(collection_t, from, to)
+    collection_t.size_type = range(from, to)
+    collection_t
   end
 end

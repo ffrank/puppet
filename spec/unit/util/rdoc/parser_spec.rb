@@ -15,7 +15,7 @@ describe "RDoc::Parser", :if => Puppet.features.rdoc1? do
   before :each do
     stub_file = stub('init.pp', :stat => stub())
     # Ruby 1.8.7 needs the following call to be stubs and not expects
-    Puppet::FileSystem::File.stubs(:new).with('init.pp').returns stub_file
+    Puppet::FileSystem.stubs(:stat).with('init.pp').returns stub() # stub_file
     @top_level = stub_everything 'toplevel', :file_relative_name => "init.pp"
     @parser = RDoc::Parser.new(@top_level, "module/manifests/init.pp", nil, Options.instance, RDoc::Stats.new)
   end
@@ -27,7 +27,9 @@ describe "RDoc::Parser", :if => Puppet.features.rdoc1? do
       Puppet::Parser::Parser.stubs(:new).returns(parser)
       parser.expects(:parse).returns(Puppet::Parser::AST::Hostclass.new('')).at_least_once
       parser.expects(:file=).with("module/manifests/init.pp")
-      parser.expects(:file=).with(File.expand_path("/dev/null/manifests/site.pp"))
+      parser.expects(:file=).with do |args|
+        args =~ /.*\/etc\/manifests\/site.pp/
+      end
 
       @parser.scan
     end

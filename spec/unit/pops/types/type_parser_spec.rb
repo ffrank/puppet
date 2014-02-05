@@ -29,16 +29,10 @@ describe Puppet::Pops::Types::TypeParser do
       /The expression <Array\[notAType\]> is not a valid type specification/)
   end
 
-  it "does not support types that do not make sense in the puppet language" do
-    # These will/may make sense later, but are not yet implemented and should not be interpreted as a PResourceType
-    expect { parser.parse("Ruby") }.to raise_type_error_for("Ruby")
-    expect { parser.parse("Type") }.to raise_type_error_for("Type")
-  end
-
   [
-    'Object', 'Collection', 'Data', 'CatalogEntry', 'Boolean', 'Literal', 'Undef', 'Numeric',
+    'Object', 'Data', 'CatalogEntry', 'Boolean', 'Literal', 'Undef', 'Numeric',
   ].each do |name|
-    it "does not support parameterizing unparameterized type <#{name}" do
+    it "does not support parameterizing unparameterized type <#{name}>" do
       expect { parser.parse("#{name}[Integer]") }.to raise_unparameterized_error_for(name)
     end
   end
@@ -75,9 +69,29 @@ describe Puppet::Pops::Types::TypeParser do
     expect(the_type_parsed_from(parameterized_hash)).to be_the_type(parameterized_hash)
   end
 
-  it "rejects an array spec with the wrong number of parameters" do
-    expect { parser.parse("Array[Integer, Integer]") }.to raise_the_parameter_error("Array", 1, 2)
-    expect { parser.parse("Hash[Integer, Integer, Integer]") }.to raise_the_parameter_error("Hash", "1 or 2", 3)
+  it "parses a size constrained collection using capped range" do
+    parameterized_array = types.array_of(types.integer)
+    types.constrain_size(parameterized_array, 1,2)
+    parameterized_hash = types.hash_of(types.integer, types.boolean)
+    types.constrain_size(parameterized_hash, 1,2)
+
+    expect(the_type_parsed_from(parameterized_array)).to be_the_type(parameterized_array)
+    expect(the_type_parsed_from(parameterized_hash)).to be_the_type(parameterized_hash)
+  end
+
+  it "parses a size constrained collection with open range" do
+    parameterized_array = types.array_of(types.integer)
+    types.constrain_size(parameterized_array, 1,:default)
+    parameterized_hash = types.hash_of(types.integer, types.boolean)
+    types.constrain_size(parameterized_hash, 1,:default)
+
+    expect(the_type_parsed_from(parameterized_array)).to be_the_type(parameterized_array)
+    expect(the_type_parsed_from(parameterized_hash)).to be_the_type(parameterized_hash)
+  end
+
+  it "rejects an collection spec with the wrong number of parameters" do
+    expect { parser.parse("Array[Integer, 1,2,3]") }.to raise_the_parameter_error("Array", "1 to 3", 4)
+    expect { parser.parse("Hash[Integer, Integer, 1,2,3]") }.to raise_the_parameter_error("Hash", "1 to 4", 5)
   end
 
   it "interprets anything that is not a built in type to be a resource type" do
@@ -110,6 +124,18 @@ describe Puppet::Pops::Types::TypeParser do
 
   it 'parses a float range' do
    expect(parser.parse("Float[1.0,2.0]")).to be_the_type(types.float_range(1.0,2.0))
+  end
+
+  it 'parses a collection size range' do
+   expect(parser.parse("Collection[1,2]")).to be_the_type(types.constrain_size(types.collection,1,2))
+  end
+
+  it 'parses a type type' do
+    expect(parser.parse("Type[Integer]")).to be_the_type(types.type_type(types.integer))
+  end
+
+  it 'parses a ruby type' do
+    expect(parser.parse("Ruby['Integer']")).to be_the_type(types.ruby_type('Integer'))
   end
 
   matcher :be_the_type do |type|
