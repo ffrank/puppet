@@ -3,6 +3,10 @@ module Puppet
 
     newparam(:resource) do
       desc "A reference to the resource that is being constrained."
+
+      # TODO validation
+
+      # TODO support for Type[name1,name2,...] and general arrays (munge?)
     end
 
     newparam(:properties) do
@@ -17,6 +21,8 @@ module Puppet
 
       validate do |value|
         fail "properties must be a hash" unless value.is_a?(Hash)
+
+	# TODO: check the structure and content of the hash
       end
 
       munge do |value|
