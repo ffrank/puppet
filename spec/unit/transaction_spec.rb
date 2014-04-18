@@ -313,6 +313,45 @@ describe Puppet::Transaction do
     end
   end
 
+  describe "when performing pre-run checks" do
+    let(:resource) { Puppet::Type.type(:notify).new :title => "spec" }
+    let(:transaction) { transaction_with_resource(resource) }
+
+    before :each do
+      resource.stubs(:respond_to?)
+      transaction.catalog.stubs(:version).returns 1
+    end
+
+    it "should not try and pre-validate ineligible resources" do
+      resource.expects(:in_valid_catalog?).never
+      transaction.evaluate
+    end
+
+    context "on applicable resources" do
+
+      before :each do
+        resource.expects(:respond_to?).with(:in_valid_catalog?).returns true
+      end
+
+      it "should call the in_valid_catalog? method" do
+        resource.expects(:in_valid_catalog?)
+        transaction.evaluate
+      end
+
+      it "should run the transaction on success" do
+        resource.expects(:in_valid_catalog?).returns true
+        Puppet.expects(:info).with { |msg| msg =~ /^Applying configuration/ }
+        transaction.evaluate
+      end
+
+      it "should abort the transaction on failure" do
+        resource.stubs(:in_valid_catalog?).returns false
+        Puppet.expects(:info).with { |msg| msg =~ /^Applying configuration/ }.never
+        transaction.evaluate
+      end
+    end
+  end
+
   describe "when skipping a resource" do
     before :each do
       @resource = Puppet::Type.type(:notify).new :name => "foo"

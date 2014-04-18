@@ -55,6 +55,16 @@ class Puppet::Transaction
     generator = AdditionalResourceGenerator.new(@catalog, relationship_graph, @prioritizer)
     @catalog.vertices.each { |resource| generator.generate_additional_resources(resource) }
 
+    catalog_valid = true
+    @catalog.vertices.each do |resource|
+      next unless resource.respond_to?(:in_valid_catalog?)
+      catalog_valid = false if !resource.in_valid_catalog?
+    end
+    if ! catalog_valid
+      Puppet.err "some pre-run checks failed, aborting transaction"
+      return nil
+    end
+
     Puppet.info "Applying configuration version '#{catalog.version}'" if catalog.version
 
     continue_while = lambda { !stop_processing? }
