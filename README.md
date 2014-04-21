@@ -1,29 +1,8 @@
 Constraints branch
 ==================
 
-This branch implements a proof of concept for `constraints`, a new meta type that aims
-to make both the `ensure_resources` function and the `defined` function obsolete. More
-information can be found in John Bollinger's [original mailing list post](https://groups.google.com/d/msg/puppet-users/Fvl0aOe4RPE/Ph38bq3FmHcJ)
-which explains their motivation, lays out their semantics and sketches their syntax.
-
-Currently, the following syntaxes are implemented:
-
-    # These are all equivalent
-    constraint {
-      'foo': resource => Package['apache2'],
-             { ensure => present };
-      'bar': resource => Package['apache2'],
-             { ensure => [ present ] };
-      'baz': resource => Package['apache2'],
-             { ensure => { allowed => [ present ] } };
-    }
-    # Blacklist instead of whitelist
-    constraint {
-      'oof': resource => Package['apache2'],
-             { ensure => { forbid => [ absent, purged ] } };
-    }
-
-Any failed constraint causes the catalog to be invalidated (agent side).
+Now only includes the patch to the Puppet core. The constraints type
+has moved to a [https://github.com/ffrank/puppet-constraints](module).
 
 Puppet
 ======
