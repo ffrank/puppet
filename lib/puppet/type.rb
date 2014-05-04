@@ -1031,7 +1031,11 @@ class Type
     # Provide the name, so we know we'll always refer to a real thing
     result[:name] = self[:name] unless self[:name] == title
 
-    if ensure_prop = property(:ensure) or (self.class.validattr?(:ensure) and ensure_prop = newattr(:ensure))
+    ensure_prop = nil
+    ensure_prop = property(:ensure) or
+      (self.class.validattr?(:ensure) and ensure_prop = newattr(:ensure))
+
+    if ! ensure_prop.nil?
       result[:ensure] = ensure_state = ensure_prop.retrieve
     else
       ensure_state = nil
