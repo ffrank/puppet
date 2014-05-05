@@ -580,6 +580,16 @@ class Type
     validattr?(name)
   end
 
+  # Determine wether the ensure property should generally retrieved from the
+  # provider when all values are prefetched. Defaults to true, but concrete
+  # resource type classes can override it to relax the retrieval rules.
+  #
+  # @return Boolean
+  # @see retrieve
+  def self.needs_ensure_retrieved
+    true
+  end
+
   # @return [Boolean] Returns true if the wanted state of the resoure is that it should be absent (i.e. to be deleted).
   def deleting?
     obj = @parameters[:ensure] and obj.should == :absent
@@ -1035,7 +1045,13 @@ class Type
     ensure_prop = property(:ensure) or
       (self.class.validattr?(:ensure) and ensure_prop = newattr(:ensure))
 
+    # avoid retrieval if the ensure state needs not be known
+    if ensure_prop and ! self.class.needs_ensure_retrieved and ! ensure_prop.should
+      ensure_prop = nil
+    end
+
     if ! ensure_prop.nil?
+      Puppet.notice "retrieving #{ref}/ensure"
       result[:ensure] = ensure_state = ensure_prop.retrieve
     else
       ensure_state = nil

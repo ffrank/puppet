@@ -230,5 +230,13 @@ module Puppet
         debug "Skipping restart; service is not running"
       end
     end
+
+    # Override to relax property is_value retrieval. This allows resources
+    # that manage only (say) enable and not ensure to skip the retrieval of
+    # ensure. This can save (much) work for the agent.
+    def self.needs_ensure_retrieved
+      false
+    end
+
   end
 end
