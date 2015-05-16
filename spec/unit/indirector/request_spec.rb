@@ -136,8 +136,8 @@ describe Puppet::Indirector::Request do
         expect(Puppet::Indirector::Request.new(:ind, :method, "http://host/an_environment", nil).port).to eq(80)
       end
 
-      it "should set the request key to the unescaped key part path from the URI" do
-        expect(Puppet::Indirector::Request.new(:ind, :method, "http://host/an_environment/terminus/stuff with spaces", nil).key).to eq("stuff with spaces")
+      it "should set the request key to the unescaped path from the URI" do
+        expect(Puppet::Indirector::Request.new(:ind, :method, "http://host/stuff with spaces", nil).key).to eq("stuff with spaces")
       end
 
       it "should set the :uri attribute to the full URI" do
