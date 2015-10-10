@@ -169,6 +169,16 @@ describe Puppet::Type.type(:service).provider(:upstart) do
     end
   end
 
+  describe "#upstart_version" do
+    it "should call telinit --version" do
+      resource = Puppet::Type.type(:service).new(:name => "foo", :provider => :upstart)
+      provider = provider_class.new(resource)
+      provider.expects(:telinit).with('--version').returns(
+          'telinit (upstart 0.9.1)')
+      expect(provider.upstart_version).to eql('0.9.1')
+    end
+  end
+
   describe "inheritance" do
     let :resource do
       resource = Puppet::Type.type(:service).new(:name => "foo", :provider => :upstart)
